@@ -388,7 +388,17 @@ class GPT(nn.Module):
         if targets is not None:
             # training: given the targets, compute and return the loss
             # TODO experiment with chunked cross-entropy?
-            loss = self.criterion(self.lm_head.weight, x, targets.view(-1))
+            # x is currently [Batch, Sequence, Hidden]
+            # targets is currently [Batch, Sequence]
+
+            # 1. Flatten hidden states to 2D: [Batch * Sequence, Hidden]
+            x_flat = x.view(-1, x.size(-1))
+
+            # 2. Flatten targets to 1D: [Batch * Sequence]
+            targets_flat = targets.view(-1)
+
+            # 3. Pass the flattened versions to the Liger Kernel
+            loss = self.criterion(self.lm_head.weight, x_flat, targets_flat)
             return loss
         else:
             # inference: just return the logits directly
