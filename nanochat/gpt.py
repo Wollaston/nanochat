@@ -386,7 +386,6 @@ class GPT(nn.Module):
             x
         )  # (B, T, padded_vocab_size) <- very big tensor, large amount of memory
         logits = logits[..., : self.config.vocab_size]  # slice to remove padding
-        logits = logits.float()  # switch to fp32 for logit softcap and loss computation
 
         if targets is not None:
             # training: given the targets, compute and return the loss
