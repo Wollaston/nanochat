@@ -394,10 +394,10 @@ class GPT(nn.Module):
             # targets is currently [Batch, Sequence]
 
             # 1. Flatten hidden states to 2D: [Batch * Sequence, Hidden]
-            x_flat = x.view(-1, x.size(-1))
+            x_flat = x.reshape(-1, x.size(-1)).contiguous()
 
             # 2. Flatten targets to 1D: [Batch * Sequence]
-            targets_flat = targets.view(-1)
+            targets_flat = targets.view(-1).contiguous()
 
             # 3. Pass the flattened versions to the Liger Kernel
             loss = self.criterion(self.lm_head.weight, x_flat, targets_flat)
