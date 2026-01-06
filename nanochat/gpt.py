@@ -146,9 +146,14 @@ class Block(nn.Module):
         super().__init__()
         self.attn = CausalSelfAttention(config, layer_idx)
 
+        intermediate_size = int(8 / 3 * config.n_embd)
+        intermediate_size = 64 * (
+            (intermediate_size + 63) // 64
+        )  # Round up to nearest 64
+
         liger_config = LigerConfig(
             config.n_embd,
-            intermediate_size=int(8 / 3 * config.n_embd),
+            intermediate_size=intermediate_size,
             hidden_act="silu",
         )
 
