@@ -11,7 +11,6 @@ Notable features:
 - Group-Query Attention (GQA) support for more efficient inference
 """
 
-import math
 from functools import partial
 from dataclasses import dataclass
 
@@ -22,6 +21,11 @@ import torch.nn.functional as F
 from nanochat.common import get_dist_info, print0
 from nanochat.muon import Muon, DistMuon
 from nanochat.adamw import DistAdamW
+from liger_kernel.transformers import (
+    LigerFusedLinearCrossEntropyLoss,
+    LigerRMSNorm,
+    LigerSwiGLUMLP,
+)
 
 
 @dataclass
@@ -32,6 +36,13 @@ class GPTConfig:
     n_head: int = 6  # number of query heads
     n_kv_head: int = 6  # number of key/value heads (GQA)
     n_embd: int = 768
+
+
+@dataclass
+class LigerConfig:
+    hidden_size: int
+    intermediate_size: int
+    hidden_act: str
 
 
 def norm(x):
@@ -130,28 +141,22 @@ class CausalSelfAttention(nn.Module):
         return y
 
 
-class MLP(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=False)
-        self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=False)
-
-    def forward(self, x):
-        x = self.c_fc(x)
-        x = F.relu(x).square()
-        x = self.c_proj(x)
-        return x
-
-
 class Block(nn.Module):
     def __init__(self, config, layer_idx):
         super().__init__()
         self.attn = CausalSelfAttention(config, layer_idx)
-        self.mlp = MLP(config)
+
+        liger_config = LigerConfig(
+            config.n_embd, intermediate_size=4 * config.n_embd, hidden_act="silu"
+        )
+
+        self.mlp = LigerSwiGLUMLP(liger_config)
+        self.rms_1 = LigerRMSNorm(config.n_embd)
+        self.rms_2 = LigerRMSNorm(config.n_embd)
 
     def forward(self, x, cos_sin, kv_cache):
-        x = x + self.attn(norm(x), cos_sin, kv_cache)
-        x = x + self.mlp(norm(x))
+        x = x + self.attn(self.rms_1(x), cos_sin, kv_cache)
+        x = x + self.mlp(self.rms_2(x))
         return x
 
 
@@ -190,6 +195,7 @@ class GPT(nn.Module):
             "cos", cos, persistent=False
         )  # persistent=False means it's not saved to the checkpoint
         self.register_buffer("sin", sin, persistent=False)
+        self.criterion = LigerFusedLinearCrossEntropyLoss()
 
     def init_weights(self):
         """
@@ -343,12 +349,7 @@ class GPT(nn.Module):
         if targets is not None:
             # training: given the targets, compute and return the loss
             # TODO experiment with chunked cross-entropy?
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                targets.view(-1),
-                ignore_index=-1,
-                reduction=loss_reduction,
-            )
+            loss = self.criterion(self.lm_head.weight, x, targets.view(-1))
             return loss
         else:
             # inference: just return the logits directly
