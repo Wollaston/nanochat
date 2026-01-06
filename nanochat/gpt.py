@@ -289,35 +289,66 @@ class GPT(nn.Module):
     ):
         model_dim = self.config.n_embd
         ddp, rank, local_rank, world_size = get_dist_info()
-        # Separate out all parameters into 3 groups (matrix, embedding, lm_head)
-        matrix_params = list(self.transformer.h.parameters())
-        embedding_params = list(self.transformer.wte.parameters())
-        lm_head_params = list(self.lm_head.parameters())
-        assert len(list(self.parameters())) == len(matrix_params) + len(
-            embedding_params
-        ) + len(lm_head_params)
-        # Create the AdamW optimizer for the embedding and lm_head
-        # Scale the LR for the AdamW parameters by ∝1/√dmodel (having tuned the LRs for 768 dim model)
-        dmodel_lr_scale = (model_dim / 768) ** -0.5
-        print0(
-            f"Scaling the LR for the AdamW parameters ∝1/√({model_dim}/768) = {dmodel_lr_scale:.6f}"
+
+        # 1. Group parameters by their physical shape and role
+        matrix_params = []  # For Muon (Hidden layer 2D weights)
+        adamw_params = []  # For AdamW (1D scales, biases, and special layers)
+        embedding_params = []  # For AdamW (Token embeddings)
+        lm_head_params = []  # For AdamW (Output head)
+
+        for name, p in self.named_parameters():
+            if "transformer.wte" in name:
+                embedding_params.append(p)
+            elif "lm_head" in name:
+                lm_head_params.append(p)
+            elif p.ndim == 2:
+                # Muon handles the 2D weights in Liger SwiGLU (w1, w2, w3) and Attention
+                matrix_params.append(p)
+            else:
+                # AdamW handles 1D parameters like LigerRMSNorm scales or biases
+                adamw_params.append(p)
+
+        # Safety check to ensure no parameters were dropped
+        all_params_count = len(list(self.parameters()))
+        found_params_count = (
+            len(matrix_params)
+            + len(embedding_params)
+            + len(lm_head_params)
+            + len(adamw_params)
         )
+        assert all_params_count == found_params_count, (
+            f"Lost {all_params_count - found_params_count} params!"
+        )
+
+        # 2. Configure AdamW Groups
+        # We apply the 1/√dmodel scaling to keep LR consistent across model sizes
+        dmodel_lr_scale = (model_dim / 768) ** -0.5
+        print0(f"Scaling AdamW LR by {dmodel_lr_scale:.6f}")
+
         adam_groups = [
             dict(params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale),
             dict(params=embedding_params, lr=embedding_lr * dmodel_lr_scale),
+            dict(
+                params=adamw_params, lr=unembedding_lr * dmodel_lr_scale
+            ),  # Biases/Norms use head LR
         ]
+
         adamw_kwargs = dict(betas=(0.8, 0.95), eps=1e-10, weight_decay=weight_decay)
         AdamWFactory = DistAdamW if ddp else partial(torch.optim.AdamW, fused=True)
         adamw_optimizer = AdamWFactory(adam_groups, **adamw_kwargs)
-        # Create the Muon optimizer for the linear layers
+
+        # 3. Configure Muon Optimizer
+        # Note: matrix_params now correctly contains only 2D tensors from Liger/Attention
         muon_kwargs = dict(lr=matrix_lr, momentum=0.95)
         MuonFactory = DistMuon if ddp else Muon
         muon_optimizer = MuonFactory(matrix_params, **muon_kwargs)
-        # Combine them the two optimizers into one list
+
+        # 4. Standard nanochat Scheduler setup
         optimizers = [adamw_optimizer, muon_optimizer]
         for opt in optimizers:
             for group in opt.param_groups:
                 group["initial_lr"] = group["lr"]
+
         return optimizers
 
     def forward(self, idx, targets=None, kv_cache=None, loss_reduction="mean"):
