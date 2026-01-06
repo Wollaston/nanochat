@@ -147,7 +147,9 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(config, layer_idx)
 
         liger_config = LigerConfig(
-            config.n_embd, intermediate_size=8 / 3 * config.n_embd, hidden_act="silu"
+            config.n_embd,
+            intermediate_size=int(8 / 3 * config.n_embd),
+            hidden_act="silu",
         )
 
         self.mlp = LigerSwiGLUMLP(liger_config)
