@@ -116,7 +116,7 @@ print(f"Saved token_bytes to {token_bytes_path}")
 # Log to report
 from nanochat.report import get_report
 
-token_bytes_nonzero = (token_bytes[token_bytes > 0]).to(dtype=torch.float32)
+token_bytes_nonzero = (token_bytes[token_bytes > 0]).to(dtype=torch.bfloat16)
 get_report().log(
     section="Tokenizer training",
     data=[

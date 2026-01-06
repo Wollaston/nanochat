@@ -254,10 +254,12 @@ class GPT(nn.Module):
         if device is None:
             device = self.transformer.wte.weight.device
         # stride the channels
-        channel_range = torch.arange(0, head_dim, 2, dtype=torch.float32, device=device)
+        channel_range = torch.arange(
+            0, head_dim, 2, dtype=torch.bfloat16, device=device
+        )
         inv_freq = 1.0 / (base ** (channel_range / head_dim))
         # stride the time steps
-        t = torch.arange(seq_len, dtype=torch.float32, device=device)
+        t = torch.arange(seq_len, dtype=torch.bfloat16, device=device)
         # calculate the rotation frequencies at each (time, channel) pair
         freqs = torch.outer(t, inv_freq)
         cos, sin = freqs.cos(), freqs.sin()

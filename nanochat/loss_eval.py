@@ -27,7 +27,7 @@ def evaluate_bpb(model, batches, steps, token_bytes):
     each token id, or 0 if the token is to not be counted (e.g. special tokens).
     """
     # record the losses
-    total_nats = torch.tensor(0.0, dtype=torch.float32, device=model.get_device())
+    total_nats = torch.tensor(0.0, dtype=torch.bfloat16, device=model.get_device())
     total_bytes = torch.tensor(0, dtype=torch.int64, device=model.get_device())
     batch_iter = iter(batches)
     for _ in range(steps):

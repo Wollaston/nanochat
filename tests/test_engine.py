@@ -117,12 +117,12 @@ def test_kv_cache_resize():
             k = torch.full(
                 (batch_size, num_heads, 1, head_dim),
                 fill_value=float(token_idx),
-                dtype=torch.float32,
+                dtype=torch.bfloat16,
             )
             v = torch.full(
                 (batch_size, num_heads, 1, head_dim),
                 fill_value=float(token_idx * 100),
-                dtype=torch.float32,
+                dtype=torch.bfloat16,
             )
             kv_cache.insert_kv(layer_idx, k, v)
 
