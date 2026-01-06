@@ -186,6 +186,7 @@ class GPT(nn.Module):
                 "h": nn.ModuleList(
                     [Block(config, layer_idx) for layer_idx in range(config.n_layer)]
                 ),
+                "ln_f": LigerRMSNorm(config.n_embd),  # REPLACE LayerNorm HERE
             }
         )
         self.lm_head = nn.Linear(config.n_embd, padded_vocab_size, bias=False)
@@ -247,6 +248,7 @@ class GPT(nn.Module):
         # Cast token embeddings to bf16: optimizer can tolerate it and it saves memory
         if self.transformer.wte.weight.device.type == "cuda":
             self.transformer.wte.to(dtype=torch.bfloat16)
+            self.lm_head.to(dtype=torch.bfloat16)  # <--- ADD THIS
 
     def _precompute_rotary_embeddings(self, seq_len, head_dim, base=10000, device=None):
         # TODO: bump base theta more? e.g. 100K is more common more recently
@@ -385,7 +387,6 @@ class GPT(nn.Module):
         )  # (B, T, padded_vocab_size) <- very big tensor, large amount of memory
         logits = logits[..., : self.config.vocab_size]  # slice to remove padding
         logits = logits.float()  # switch to fp32 for logit softcap and loss computation
-        logits = softcap * torch.tanh(logits / softcap)  # squash the logits
 
         if targets is not None:
             # training: given the targets, compute and return the loss
@@ -394,7 +395,7 @@ class GPT(nn.Module):
             # targets is currently [Batch, Sequence]
 
             # 1. Flatten hidden states to 2D: [Batch * Sequence, Hidden]
-            x_flat = x.reshape(-1, x.size(-1)).contiguous()
+            x_flat = x.view(-1, x.size(-1)).contiguous()
 
             # 2. Flatten targets to 1D: [Batch * Sequence]
             targets_flat = targets.view(-1).contiguous()
