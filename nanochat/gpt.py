@@ -147,7 +147,7 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(config, layer_idx)
 
         liger_config = LigerConfig(
-            config.n_embd, intermediate_size=4 * config.n_embd, hidden_act="silu"
+            config.n_embd, intermediate_size=8 / 3 * config.n_embd, hidden_act="silu"
         )
 
         self.mlp = LigerSwiGLUMLP(liger_config)
@@ -228,8 +228,9 @@ class GPT(nn.Module):
             torch.nn.init.uniform_(block.attn.c_k.weight, -s, s)
             torch.nn.init.uniform_(block.attn.c_v.weight, -s, s)
             torch.nn.init.zeros_(block.attn.c_proj.weight)  # projections are zero
-            torch.nn.init.uniform_(block.mlp.c_fc.weight, -s, s)
-            torch.nn.init.zeros_(block.mlp.c_proj.weight)
+            torch.nn.init.uniform_(block.mlp.up_proj.weight, -s, s)
+            torch.nn.init.uniform_(block.mlp.gate_proj.weight, -s, s)
+            torch.nn.init.zeros_(block.mlp.down_proj.weight)
 
         # Rotary embeddings
         head_dim = self.config.n_embd // self.config.n_head
