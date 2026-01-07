@@ -375,10 +375,10 @@ class GPT(nn.Module):
 
         # Forward the trunk of the Transformer
         x = self.transformer.wte(idx)
-        x = self.transformer.ln_x(x)
+        x = self.transformer.ln_f(x)
         for block in self.transformer.h:
             x = block(x, cos_sin, kv_cache)
-        x = self.transformer.ln_x(x)
+        x = self.transformer.ln_f(x)
 
         # Forward the lm_head (compute logits)
         logits = self.lm_head(
