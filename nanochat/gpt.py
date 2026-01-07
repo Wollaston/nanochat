@@ -168,7 +168,7 @@ class Block(nn.Module):
 
 
 class GPT(nn.Module):
-    def __init__(self, config, pad_vocab_size_to=64):
+    def __init__(self, config, pad_vocab_size_to=128):
         super().__init__()
         self.config = config
         # For DDP, we want vocab_size divisible by world_size. Also, there are potential performance benefits, see:
@@ -247,8 +247,7 @@ class GPT(nn.Module):
 
         # Cast token embeddings to bf16: optimizer can tolerate it and it saves memory
         if self.transformer.wte.weight.device.type == "cuda":
-            self.transformer.wte.to(dtype=torch.bfloat16)
-            self.lm_head.to(dtype=torch.bfloat16)  # <--- ADD THIS
+            self.to(dtype=torch.bfloat16)
 
     def _precompute_rotary_embeddings(self, seq_len, head_dim, base=10000, device=None):
         # TODO: bump base theta more? e.g. 100K is more common more recently
@@ -380,12 +379,6 @@ class GPT(nn.Module):
             x = block(x, cos_sin, kv_cache)
         x = self.transformer.ln_f(x)
 
-        # Forward the lm_head (compute logits)
-        logits = self.lm_head(
-            x
-        )  # (B, T, padded_vocab_size) <- very big tensor, large amount of memory
-        logits = logits[..., : self.config.vocab_size]  # slice to remove padding
-
         if targets is not None:
             # training: given the targets, compute and return the loss
             # TODO experiment with chunked cross-entropy?
@@ -399,10 +392,17 @@ class GPT(nn.Module):
             targets_flat = targets.view(-1).contiguous()
 
             # 3. Pass the flattened versions to the Liger Kernel
-            loss = self.criterion(self.lm_head.weight, x_flat, targets_flat)
+            loss = self.criterion(x_flat, targets_flat, self.lm_head.weight)
             return loss
         else:
             # inference: just return the logits directly
+
+            # Forward the lm_head (compute logits)
+            logits = self.lm_head(
+                x
+            )  # (B, T, padded_vocab_size) <- very big tensor, large amount of memory
+            logits = logits[..., : self.config.vocab_size]  # slice to remove padding
+
             return logits
 
     @torch.inference_mode()
