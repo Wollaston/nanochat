@@ -203,7 +203,7 @@ class GPT(nn.Module):
             "cos", cos, persistent=False
         )  # persistent=False means it's not saved to the checkpoint
         self.register_buffer("sin", sin, persistent=False)
-        self.criterion = LigerFusedLinearCrossEntropyLoss()
+        self.criterion = LigerFusedLinearCrossEntropyLoss(ignore_index=-1)
 
     def init_weights(self):
         """
@@ -375,13 +375,12 @@ class GPT(nn.Module):
 
         # Forward the trunk of the Transformer
         x = self.transformer.wte(idx)
-        x = norm(x)
+        x = self.transformer.ln_x(x)
         for block in self.transformer.h:
             x = block(x, cos_sin, kv_cache)
-        x = norm(x)
+        x = self.transformer.ln_x(x)
 
         # Forward the lm_head (compute logits)
-        softcap = 15  # smoothly cap the logits to the range [-softcap, softcap]
         logits = self.lm_head(
             x
         )  # (B, T, padded_vocab_size) <- very big tensor, large amount of memory
