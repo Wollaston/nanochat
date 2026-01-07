@@ -17,6 +17,7 @@ mkdir -p $NANOCHAT_BASE_DIR
 
 # -----------------------------------------------------------------------------
 # Python venv setup with uv
+export UV_CACHE_DIR=/data/$(whoami)/.cache/uv
 
 # install uv (if not already installed)
 command -v uv &>/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
